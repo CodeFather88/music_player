@@ -1,0 +1,7 @@
+{
+  "nodeEnv": "dev",
+  "port": 3000,
+  "host": "http://localhost:",
+  "coordinator_port": 5000,
+  "coordinator_host": "ws://localhost:"
+}

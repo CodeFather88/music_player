@@ -3,6 +3,8 @@ import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDiscon
 import { Server, Socket } from 'socket.io';
 import { WorkerGateway } from './worker.gateway';
 import { randomUUID } from 'crypto';
+import { NewSessionSchema } from "../schemas/client/new-session.schema";
+import { UpdateSessionSchema } from "../schemas/client/update-session.schema";
 
 @Injectable()
 @WebSocketGateway({ namespace: '/client' })
@@ -29,19 +31,23 @@ export class ClientGateway implements OnGatewayConnection, OnGatewayDisconnect {
     async handleDisconnect(client: Socket) {
         const clientInfo = this.clients.get(client.id);
         if (clientInfo) {
-            console.log(`Client disconnected: ${client.id} and session: ${clientInfo.session_id}`);
+            console.log(`Клиент отключен: ${client.id} сессия: ${clientInfo.session_id}`);
             if (clientInfo.session_id) {
                 await this.workerGateway.handlerCloseSessionConnection(clientInfo.session_id)
             }
             this.clients.delete(client.id);
         } else {
-            console.error(`Client info not found for disconnected client: ${client.id}`);
+            console.error(`Client info не найден для отключенного client: ${client.id}`);
         }
     }
 
 
     @SubscribeMessage('new_session')
-    async handleNewSession(@MessageBody() data: any, @ConnectedSocket() client: Socket) {
+    async handleNewSession(@MessageBody() data: NewSessionSchema, @ConnectedSocket() client: Socket) {
+        const { error } = NewSessionSchema.validate(data);
+        if (error) {
+            client.emit('error', { message: "validation error" })
+        }
         const { station, knobs } = data.payload;
         const clientInfo = this.clients.get(client.id);
         if (clientInfo.session_id) {
@@ -57,7 +63,11 @@ export class ClientGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     @SubscribeMessage('update_session')
-    async handleUpdateSession(@MessageBody() data: any, @ConnectedSocket() client: Socket) {
+    async handleUpdateSession(@MessageBody() data: UpdateSessionSchema, @ConnectedSocket() client: Socket) {
+        const { error } = UpdateSessionSchema.validate(data);
+        if (error) {
+            client.emit('error', { message: "validation error" })
+        }
         const { station, knobs } = data.payload;
         const clientInfo = this.clients.get(client.id);
         const { session_id } = clientInfo
@@ -74,7 +84,7 @@ export class ClientGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const clientInfo = this.clients.get(client.id);
 
         if (!clientInfo.session_id) {
-            console.error('No session_id associated with this client.');
+            console.error('Не найден session_id для данного клиента.');
             return;
         }
 
@@ -82,7 +92,6 @@ export class ClientGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         for await (const chunk of this.workerGateway.receiveAudioStream(clientInfo.session_id)) {
             console.log(`Received audio chunk: ${chunk.length} bytes`);
-            // Отправляем чанки обратно клиенту через сокет
             client.emit('chunks', chunk);
         }
     }

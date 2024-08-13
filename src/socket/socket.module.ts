@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { WorkerGateway } from './worker.gateway';
-import { ClientGateway } from './client.gateway'; 
+import { WorkerGateway } from './gateways/worker.gateway';
+import { ClientGateway } from './gateways/client.gateway'; 
 
 @Module({
   providers: [
