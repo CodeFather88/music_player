@@ -47,7 +47,7 @@ export class WorkerGateway implements OnModuleInit {
     return this.send('update', ws, { knobs, station, trace_id, session_id }, 'status');
   }
 
-  public handlerConnectWithSession(session: string) {
+  public async handlerConnectWithSession(session: string) {
     if (this.connections[session] && this.connections[session].readyState === WebSocket.OPEN) {
       this.logger.warn(`Соединение уже установлено для сессии: ${session}`);
       return;
@@ -71,7 +71,7 @@ export class WorkerGateway implements OnModuleInit {
 
   }
 
-  public handlerCloseSessionConnection(session: string) {
+  public async handlerCloseSessionConnection(session: string) {
     const ws = this.connections[session];
     if (ws && ws.readyState === WebSocket.OPEN) {
       this.logger.log(`Закрытие соединения для сессии: ${session}`);
@@ -90,7 +90,7 @@ export class WorkerGateway implements OnModuleInit {
     console.log(pong)
   }
 
-  
+
   private async send(
     message_type: string,
     ws: WebSocket,
@@ -131,7 +131,7 @@ export class WorkerGateway implements OnModuleInit {
           ws.send(message);
         } catch (error) {
           this.logger.error(`Ошибка при отправке сообщения: ${error.message}`);
-          ws.off('message', messageHandler); 
+          ws.off('message', messageHandler);
           reject(error);
         }
       });
@@ -140,4 +140,38 @@ export class WorkerGateway implements OnModuleInit {
       return Promise.reject(new Error('WebSocket не открыт'));
     }
   }
+
+  // Метод для приема аудиочанков
+  async *receiveAudioStream(session) {
+    // const ws = this.connections[session]; //это нужно раскомментировать чтобы различать сессии!!!!!
+    const ws = this.ws; //а это нужно убрать
+
+    if (!ws) {
+      throw new Error(`No connection found for session: ${session}`);
+    }
+
+    const audioChunks = [];
+
+    ws.on('message', (data) => {
+      // Поскольку мы отправляем байты, нужно проверить тип сообщения и сохранить чанки
+      if (Buffer.isBuffer(data)) {
+        audioChunks.push(data);
+        console.log('Audio chunk received and added to queue:', data.length);
+      } else {
+        console.log('Non-buffer message received:', data.toString());
+      }
+    });
+
+    while (true) {
+      if (audioChunks.length > 0) {
+        yield audioChunks.shift(); // Возвращаем первый аудиочанк
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 100)); // Ждем, пока не появятся новые данные
+      }
+    }
+  }
+
+
+
+
 }

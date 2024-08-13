@@ -50,9 +50,10 @@ export class ClientGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
         const result = await this.workerGateway.handlerNewSession({ knobs, station, trace_id: client.id })
         clientInfo.session_id = result.payload.session_id;
-        await this.workerGateway.handlerConnectWithSession(clientInfo.session_id)
-        client.emit('new_session', result.payload)
+        await this.workerGateway.handlerConnectWithSession(clientInfo.session_id).then(() => {
 
+            client.emit('new_session', result.payload)
+        })
     }
 
     @SubscribeMessage('update_session')
@@ -65,8 +66,26 @@ export class ClientGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
         const result = await this.workerGateway.handlerUpdateSession({ knobs, station, session_id, trace_id: client.id })
         client.emit('update_session', result.payload)
+
     }
 
+    @SubscribeMessage('chunks')
+    async handleGetChunks(@ConnectedSocket() client: Socket) {
+        const clientInfo = this.clients.get(client.id);
+
+        if (!clientInfo.session_id) {
+            console.error('No session_id associated with this client.');
+            return;
+        }
+
+        console.log('Starting to receive audio chunks for session:', clientInfo.session_id);
+
+        for await (const chunk of this.workerGateway.receiveAudioStream(clientInfo.session_id)) {
+            console.log(`Received audio chunk: ${chunk.length} bytes`);
+            // Отправляем чанки обратно клиенту через сокет
+            client.emit('chunks', chunk);
+        }
+    }
 
 
 }
