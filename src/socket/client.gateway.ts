@@ -64,10 +64,7 @@ export class ClientGateway implements OnGatewayConnection, OnGatewayDisconnect {
             return
         }
         const result = await this.workerGateway.handlerUpdateSession({ knobs, station, session_id, trace_id: client.id })
-        clientInfo.session_id = result.payload.session_id;
-        await this.workerGateway.handlerConnectWithSession(clientInfo.session_id)
         client.emit('update_session', result.payload)
-
     }
 
 

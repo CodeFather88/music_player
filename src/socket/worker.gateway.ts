@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { randomUUID } from 'crypto';
 import * as WebSocket from 'ws';
+import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class WorkerGateway implements OnModuleInit {
@@ -37,53 +38,13 @@ export class WorkerGateway implements OnModuleInit {
 
   async handlerNewSession(payload: any): Promise<any> {
     const { knobs, trace_id, station } = payload;
-
-    return new Promise((resolve, reject) => {
-      const messageHandler = (message: any) => {
-        try {
-          const parsedMessage = JSON.parse(message.toString());
-          if (parsedMessage.message_type === 'session_created' && parsedMessage.payload.trace_id === payload.trace_id) {
-            console.log('Received message:', parsedMessage);
-            this.ws.off('message', messageHandler);
-            resolve(parsedMessage);
-          }
-        } catch (error) {
-          console.error('Error parsing message:', error);
-          this.ws.off('message', messageHandler);
-          reject(error);
-        }
-      };
-
-      this.ws.on('message', messageHandler);
-
-      this.send('new_session', this.ws, { knobs, station, trace_id });
-    });
+    return this.send('new_session', this.ws, { knobs, station, trace_id }, 'session_created');
   }
 
   async handlerUpdateSession(payload: any): Promise<any> {
     const { knobs, session_id, trace_id, station } = payload;
     const ws = this.connections[session_id];
-
-    return new Promise((resolve, reject) => {
-      const messageHandler = (message: any) => {
-        try {
-          const parsedMessage = JSON.parse(message.toString());
-          if (parsedMessage.message_type === 'status' && parsedMessage.payload.trace_id === payload.trace_id) {
-            console.log('Received message:', parsedMessage);
-            ws.off('message', messageHandler);
-            resolve(parsedMessage);
-          }
-        } catch (error) {
-          console.error('Error parsing message:', error);
-          ws.off('message', messageHandler);
-          reject(error);
-        }
-      };
-
-      ws.on('message', messageHandler);
-
-      this.send('update', ws, { knobs, station, trace_id });
-    });
+    return this.send('update', ws, { knobs, station, trace_id, session_id }, 'status');
   }
 
   public handlerConnectWithSession(session: string) {
@@ -125,51 +86,61 @@ export class WorkerGateway implements OnModuleInit {
    */
   @Cron('*/10 * * * * *')
   private async handlePing() {
-    const requestId = randomUUID();
-    const payload = { requestId };
-    await new Promise<void>((resolve, reject) => {
-      const messageHandler = (message: any) => {
-        try {
-          const parsedMessage = JSON.parse(message.toString());
-          if (parsedMessage.message_type === 'pong' && parsedMessage.payload.requestId === requestId) {
-            console.log('pong');
-            this.ws.off('message', messageHandler);
-            resolve();
-          }
-        } catch (error) {
-          console.error('Error parsing message:', error);
-          this.ws.off('message', messageHandler);
-          reject(error);
-        }
-      };
 
-      this.ws.on('message', messageHandler);
-
-      if (this.ws.readyState === WebSocket.OPEN) {
-        this.send('ping', this.ws, payload);
-      } else {
-        reject(new Error('WebSocket is not open'));
-      }
-    }).catch(error => {
-      console.error('Ping handling failed:', error);
-    });
+    // Отправка сообщения и ожидание ответа
+    const pong = await this.send('ping', this.ws, {}, 'pong');
+    console.log(pong)
   }
 
-  private async send(message_type: string, ws: WebSocket, payload?: any,) {
+  private async send(
+    message_type: string,
+    ws: WebSocket,
+    payload?: any,
+    expectedMessageType?: string
+  ): Promise<any> {
     if (ws.readyState === WebSocket.OPEN) {
-      try {
-        const message = JSON.stringify({
-          message_type,
-          payload
+      console.log()
+      return new Promise((resolve, reject) => {
+        // Генерация уникального идентификатора
+        const uid = uuidv4();
 
-        });
-        this.logger.log(`Отправка сообщения: ${message}`);
-        ws.send(message);
-      } catch (error) {
-        this.logger.error(`Ошибка при отправке сообщения: ${error.message}`);
-      }
+        // Функция обработчика сообщений
+        const messageHandler = (message: any) => {
+          try {
+            const parsedMessage = JSON.parse(message.toString());
+            if (parsedMessage.message_type === expectedMessageType &&
+              parsedMessage.payload.uid === uid) {
+              console.log('Получено сообщение:', parsedMessage);
+              ws.off('message', messageHandler); // Удаление обработчика после получения ответа
+              resolve(parsedMessage);
+            }
+          } catch (error) {
+            console.error('Ошибка обработки сообщения:', error);
+            ws.off('message', messageHandler); // Удаление обработчика в случае ошибки
+            reject(error);
+          }
+        };
+
+        // Добавление обработчика сообщений
+        ws.on('message', messageHandler);
+
+        // Отправка сообщения
+        try {
+          const message = JSON.stringify({
+            message_type,
+            payload: { ...payload, uid: uid }
+          });
+          this.logger.log(`Отправка сообщения: ${message}`);
+          ws.send(message);
+        } catch (error) {
+          this.logger.error(`Ошибка при отправке сообщения: ${error.message}`);
+          ws.off('message', messageHandler); 
+          reject(error);
+        }
+      });
     } else {
       this.logger.warn('WebSocket соединение не открыто, сообщение не отправлено');
+      return Promise.reject(new Error('WebSocket не открыт'));
     }
   }
 }
