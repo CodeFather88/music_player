@@ -6,7 +6,13 @@ import * as WebSocket from 'ws';
 export class WorkerGateway implements OnModuleInit {
   private readonly logger = new Logger(WorkerGateway.name);
   private ws: WebSocket;
+  private connections: { [session: string]: WebSocket } = {};
 
+  constructor() {
+    setInterval(() => {
+      console.log(this.connections)
+    }, 10000)
+  }
   onModuleInit() {
     this.connect();
   }
@@ -35,9 +41,11 @@ export class WorkerGateway implements OnModuleInit {
       this.ws.on('message', (message) => {
         try {
           const parsedMessage = JSON.parse(message.toString());
-          console.log('Received message:', parsedMessage);
+          if (parsedMessage.message_type == 'session_created' && parsedMessage.payload.trace_id == payload.trace_id) {
+            console.log('Received message:', parsedMessage);
+            resolve(parsedMessage);
+          }
 
-          resolve(parsedMessage);
         } catch (error) {
           console.error('Error parsing message:', error);
           reject(error);
@@ -49,11 +57,36 @@ export class WorkerGateway implements OnModuleInit {
   }
 
   public handlerConnectWithSession(session: string) {
-    this.connect(session);
+    if (this.connections[session] && this.connections[session].readyState === WebSocket.OPEN) {
+      this.logger.warn(`Соединение уже установлено для сессии: ${session}`);
+      return;
+    }
+
+    const ws = new WebSocket(`ws://localhost:5000/${session}`);
+
+    ws.on('open', () => {
+      this.logger.log(`Connected to WebSocket server with session: ${session}`);
+      this.connections[session] = ws; // Сохранение соединения
+    });
+
+    ws.on('close', () => {
+      this.logger.warn(`WebSocket соединение закрыто (session: ${session})`);
+      delete this.connections[session]; // Удаление закрытого соединения
+    });
+
+    ws.on('error', (error) => {
+      this.logger.error(`Ошибка WebSocket (session: ${session}): ${error.message}`);
+    });
   }
 
-  public handlerCloseConnection(session: string) {
-  
+  public handlerCloseSessionConnection(session: string) {
+    const ws = this.connections[session];
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      this.logger.log(`Закрытие соединения для сессии: ${session}`);
+      ws.close();
+    } else {
+      this.logger.warn(`Соединение для сессии ${session} не найдено или уже закрыто`);
+    }
   }
 
   private async send(message_type: string, payload?: any) {
