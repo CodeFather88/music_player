@@ -86,12 +86,11 @@ export class WorkerGateway implements OnModuleInit {
    */
   @Cron('*/10 * * * * *')
   private async handlePing() {
-
-    // Отправка сообщения и ожидание ответа
     const pong = await this.send('ping', this.ws, {}, 'pong');
     console.log(pong)
   }
 
+  
   private async send(
     message_type: string,
     ws: WebSocket,
@@ -101,7 +100,6 @@ export class WorkerGateway implements OnModuleInit {
     if (ws.readyState === WebSocket.OPEN) {
       console.log()
       return new Promise((resolve, reject) => {
-        // Генерация уникального идентификатора
         const uid = uuidv4();
 
         // Функция обработчика сообщений
@@ -121,7 +119,6 @@ export class WorkerGateway implements OnModuleInit {
           }
         };
 
-        // Добавление обработчика сообщений
         ws.on('message', messageHandler);
 
         // Отправка сообщения
